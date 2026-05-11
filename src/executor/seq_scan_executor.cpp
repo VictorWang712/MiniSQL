@@ -40,7 +40,6 @@ void SeqScanExecutor::TupleTransfer(const Schema *table_schema, const Schema *ou
 
 void SeqScanExecutor::Init() {
   exec_ctx_->GetCatalog()->GetTable(plan_->GetTableName(), table_info_);
-  auto first_row = table_info_->GetTableHeap()->Begin(nullptr);
   iterator_ = (table_info_->GetTableHeap()->Begin(exec_ctx_->GetTransaction()));
   schema_ = plan_->OutputSchema();
   is_schema_same_ = SchemaEqual(table_info_->GetSchema(), schema_);
@@ -52,7 +51,7 @@ bool SeqScanExecutor::Next(Row *row, RowId *rid) {
   while (iterator_ != table_info_->GetTableHeap()->End()) {
     auto p_row = &(*iterator_);
     if (predicate != nullptr) {
-      if (!predicate->Evaluate(p_row).CompareEquals(Field(kTypeInt, 1))) {
+      if (predicate->Evaluate(p_row).CompareEquals(Field(kTypeInt, 1)) != CmpBool::kTrue) {
         iterator_++;
         continue;
       }

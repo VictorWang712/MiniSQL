@@ -10,7 +10,6 @@ IndexScanExecutor::IndexScanExecutor(ExecuteContext *exec_ctx, const IndexScanPl
 
 void IndexScanExecutor::Init() {
   exec_ctx_->GetCatalog()->GetTable(plan_->GetTableName(), table_info_);
-  auto first_row = table_info_->GetTableHeap()->Begin(nullptr);
   result_ = IndexScan(plan_->GetPredicate());
   is_schema_same_ = SchemaEqual(table_info_->GetSchema(), plan_->OutputSchema());
 }
@@ -45,6 +44,9 @@ void IndexScanExecutor::TupleTransfer(const Schema *table_schema, const Schema *
 }
 
 vector<RowId> IndexScanExecutor::IndexScan(AbstractExpressionRef predicate) {
+  if (predicate == nullptr) {
+    return {};
+  }
   switch (predicate->GetType()) {
     case ExpressionType::LogicExpression: {
       vector<RowId> lhs = IndexScan(predicate->GetChildAt(0));
@@ -78,7 +80,7 @@ vector<RowId> IndexScanExecutor::IndexScan(AbstractExpressionRef predicate) {
       return ret;
     }
     default:
-      break;
+      return {};
   }
 }
 
@@ -89,7 +91,7 @@ bool IndexScanExecutor::Next(Row *row, RowId *rid) {
     auto p_row = new Row(result_[cursor_]);
     table_info_->GetTableHeap()->GetTuple(p_row, nullptr);
     if (plan_->need_filter_) {
-      if (!predicate->Evaluate(p_row).CompareEquals(Field(kTypeInt, 1))) {
+      if (predicate->Evaluate(p_row).CompareEquals(Field(kTypeInt, 1)) != CmpBool::kTrue) {
         cursor_++;
         delete p_row;
         continue;

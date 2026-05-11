@@ -46,7 +46,7 @@ class InsertStatement : public AbstractStatement {
     for (auto column : columns) {
       if (!ast)
         throw std::logic_error("The inserted value does not match the schema");
-      if (ast_->type_ == kNodeNull) {
+      if (ast->type_ == kNodeNull) {
         auto f = new Field(column->GetType());
         value.emplace_back(std::make_shared<ConstantValueExpression>(*f));
         delete f;

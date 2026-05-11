@@ -25,6 +25,10 @@ bool DeleteExecutor::Next([[maybe_unused]] Row *row, RowId *rid) {
       row->GetKeyFromRow(table_info_->GetSchema(), info->GetIndexKeySchema(), key_row);
       info->GetIndex()->RemoveEntry(key_row, *rid, txn_);
     }
+    table_info_->GetTableHeap()->ApplyDelete(*rid, txn_);
+    if (row != nullptr) {
+      *row = Row();
+    }
     return true;
   }
   return false;
