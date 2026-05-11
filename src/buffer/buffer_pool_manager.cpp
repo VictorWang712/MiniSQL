@@ -33,7 +33,37 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id) {
   // 2.     If R is dirty, write it back to the disk.
   // 3.     Delete R from the page table and insert P.
   // 4.     Update P's metadata, read in the page content from disk, and then return a pointer to P.
-  return nullptr;
+  lock_guard<recursive_mutex> lock(latch_);
+
+  auto page_iter = page_table_.find(page_id);
+  if (page_iter != page_table_.end()) {
+    auto frame_id = page_iter->second;
+    auto *page = &pages_[frame_id];
+    page->pin_count_++;
+    replacer_->Pin(frame_id);
+    return page;
+  }
+
+  frame_id_t frame_id = TryToFindFreePage();
+  if (frame_id == INVALID_FRAME_ID) {
+    return nullptr;
+  }
+
+  auto *page = &pages_[frame_id];
+  if (page->page_id_ != INVALID_PAGE_ID) {
+    if (page->is_dirty_) {
+      disk_manager_->WritePage(page->page_id_, page->data_);
+    }
+    page_table_.erase(page->page_id_);
+  }
+
+  disk_manager_->ReadPage(page_id, page->data_);
+  page->page_id_ = page_id;
+  page->pin_count_ = 1;
+  page->is_dirty_ = false;
+  page_table_[page_id] = frame_id;
+  replacer_->Pin(frame_id);
+  return page;
 }
 
 /**
@@ -45,7 +75,29 @@ Page *BufferPoolManager::NewPage(page_id_t &page_id) {
   // 2.   Pick a victim page P from either the free list or the replacer. Always pick from the free list first.
   // 3.   Update P's metadata, zero out memory and add P to the page table.
   // 4.   Set the page ID output parameter. Return a pointer to P.
-  return nullptr;
+  lock_guard<recursive_mutex> lock(latch_);
+
+  frame_id_t frame_id = TryToFindFreePage();
+  if (frame_id == INVALID_FRAME_ID) {
+    return nullptr;
+  }
+
+  page_id = AllocatePage();
+  auto *page = &pages_[frame_id];
+  if (page->page_id_ != INVALID_PAGE_ID) {
+    if (page->is_dirty_) {
+      disk_manager_->WritePage(page->page_id_, page->data_);
+    }
+    page_table_.erase(page->page_id_);
+  }
+
+  page->ResetMemory();
+  page->page_id_ = page_id;
+  page->pin_count_ = 1;
+  page->is_dirty_ = false;
+  page_table_[page_id] = frame_id;
+  replacer_->Pin(frame_id);
+  return page;
 }
 
 /**
@@ -57,21 +109,84 @@ bool BufferPoolManager::DeletePage(page_id_t page_id) {
   // 1.   If P does not exist, return true.
   // 2.   If P exists, but has a non-zero pin-count, return false. Someone is using the page.
   // 3.   Otherwise, P can be deleted. Remove P from the page table, reset its metadata and return it to the free list.
-  return false;
+  lock_guard<recursive_mutex> lock(latch_);
+
+  auto page_iter = page_table_.find(page_id);
+  if (page_iter == page_table_.end()) {
+    DeallocatePage(page_id);
+    return true;
+  }
+
+  auto frame_id = page_iter->second;
+  auto *page = &pages_[frame_id];
+  if (page->pin_count_ > 0) {
+    return false;
+  }
+
+  replacer_->Pin(frame_id);
+  page_table_.erase(page_iter);
+  page->ResetMemory();
+  page->page_id_ = INVALID_PAGE_ID;
+  page->pin_count_ = 0;
+  page->is_dirty_ = false;
+  free_list_.push_back(frame_id);
+  DeallocatePage(page_id);
+  return true;
 }
 
 /**
  * TODO: Student Implement
  */
 bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
-  return false;
+  lock_guard<recursive_mutex> lock(latch_);
+
+  auto page_iter = page_table_.find(page_id);
+  if (page_iter == page_table_.end()) {
+    return false;
+  }
+
+  auto *page = &pages_[page_iter->second];
+  if (page->pin_count_ <= 0) {
+    return false;
+  }
+
+  page->pin_count_--;
+  page->is_dirty_ = page->is_dirty_ || is_dirty;
+  if (page->pin_count_ == 0) {
+    replacer_->Unpin(page_iter->second);
+  }
+  return true;
 }
 
 /**
  * TODO: Student Implement
  */
 bool BufferPoolManager::FlushPage(page_id_t page_id) {
-  return false;
+  lock_guard<recursive_mutex> lock(latch_);
+
+  auto page_iter = page_table_.find(page_id);
+  if (page_iter == page_table_.end()) {
+    return false;
+  }
+
+  auto *page = &pages_[page_iter->second];
+  disk_manager_->WritePage(page_id, page->data_);
+  page->is_dirty_ = false;
+  return true;
+}
+
+frame_id_t BufferPoolManager::TryToFindFreePage() {
+  if (!free_list_.empty()) {
+    auto frame_id = free_list_.front();
+    free_list_.pop_front();
+    return frame_id;
+  }
+
+  frame_id_t frame_id = INVALID_FRAME_ID;
+  if (replacer_->Victim(&frame_id)) {
+    return frame_id;
+  }
+  return INVALID_FRAME_ID;
 }
 
 page_id_t BufferPoolManager::AllocatePage() {
