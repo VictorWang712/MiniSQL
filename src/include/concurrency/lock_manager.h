@@ -41,6 +41,7 @@ public:
         LockMode lock_mode_{LockMode::kShared};
         // The type of lock that has been granted to the transaction
         LockMode granted_{LockMode::kNone};
+        bool upgrading_{false};
     };
 
     /**
