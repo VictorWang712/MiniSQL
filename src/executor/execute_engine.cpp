@@ -189,7 +189,7 @@ dberr_t ExecuteEngine::Execute(pSyntaxNode ast) {
   }
   auto stop_time = std::chrono::system_clock::now();
   double duration_time =
-      double((std::chrono::duration_cast<std::chrono::milliseconds>(stop_time - start_time)).count());
+      double((std::chrono::duration_cast<std::chrono::microseconds>(stop_time - start_time)).count());
   // Return the result set as string.
   std::stringstream ss;
   ResultWriter writer(ss);

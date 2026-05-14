@@ -40,7 +40,7 @@ class ResultWriter {
     } else {
       stream_ << "Query OK, " << result_size << " row affected";
     }
-    stream_ << "(" << fixed << setprecision(4) << time / 1000 << " sec)." << std::endl;
+    stream_ << "(" << fixed << setprecision(6) << time / 1000000 << " sec)." << std::endl;
   }
   bool disable_header_;
   std::ostream &stream_;
